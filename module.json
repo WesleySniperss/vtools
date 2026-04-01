@@ -1,0 +1,22 @@
+{
+  "id": "vtools",
+  "title": "VTools",
+  "description": "Unified toolbar hub — collects buttons from other modules into one place.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13",
+    "maximum": "13"
+  },
+  "authors": [
+    {
+      "name": "Ukrainian TTRPG Community"
+    }
+  ],
+  "esmodules": [
+    "scripts/vtools.mjs"
+  ],
+  "styles": [
+    "styles/vtools.css"
+  ]
+}
