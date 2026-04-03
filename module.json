@@ -13,6 +13,9 @@
       "name": "Ukrainian TTRPG Community"
     }
   ],
+  "url": "https://github.com/WesleySniperss/vtools",
+  "manifest": "https://raw.githubusercontent.com/WesleySniperss/vtools/main/module.json",
+  "download": "https://github.com/WesleySniperss/vtools/archive/refs/heads/main.zip",
   "esmodules": [
     "scripts/vtools.mjs"
   ],
