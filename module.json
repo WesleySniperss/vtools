@@ -23,3 +23,10 @@
     "styles/vtools.css"
   ]
 }
+{
+  "id": "epic-rolls-ua",
+  "title": "Epic Rolls UA",
+  ...
+  "manifest": "https://raw.githubusercontent.com/WesleySniperss/VTools/main/module.json",
+  "download": "https://github.com/WesleySniperss/VTools/archive/refs/heads/main.zip"
+}
