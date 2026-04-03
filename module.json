@@ -1,7 +1,7 @@
 {
   "id": "vtools",
   "title": "VTools",
-  "description": "Unified toolbar hub — collects buttons from other modules into one place.",
+  "description": "A unified toolbar hub that collects buttons from other modules into one place.",
   "version": "1.0.0",
   "compatibility": {
     "minimum": "13",
@@ -22,11 +22,4 @@
   "styles": [
     "styles/vtools.css"
   ]
-}
-{
-  "id": "epic-rolls-ua",
-  "title": "Epic Rolls UA",
-  ...
-  "manifest": "https://raw.githubusercontent.com/WesleySniperss/VTools/main/module.json",
-  "download": "https://github.com/WesleySniperss/VTools/archive/refs/heads/main.zip"
 }
