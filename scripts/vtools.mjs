@@ -51,6 +51,7 @@ Hooks.once("setup", () => {
 });
 
 Hooks.on("getSceneControlButtons", (controls) => {
+  if (!game.user.isGM) return;
   const toolEntries = VTools._tools.length > 0 ? VTools._tools : [];
 
   const tools = {};
@@ -91,6 +92,7 @@ Hooks.on("getSceneControlButtons", (controls) => {
 
 // Ховаємо dummy з DOM після рендеру
 Hooks.on("renderSceneControls", () => {
+  if (!game.user.isGM) return;
   if (ui.controls?.control?.name !== "vtools") return;
   const toolsEl = document.getElementById("scene-controls-tools");
   const dummy = toolsEl?.querySelector('button[data-tool="vtools-dummy"]');
