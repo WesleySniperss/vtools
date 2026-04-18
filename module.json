@@ -2,7 +2,7 @@
   "id": "vtools",
   "title": "VTools",
   "description": "A unified toolbar hub that collects buttons from other modules into one place.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "compatibility": {
     "minimum": "13",
     "verified": "13",
