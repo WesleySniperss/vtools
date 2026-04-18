@@ -82,7 +82,7 @@ Hooks.on("getSceneControlButtons", (controls) => {
     title:        "VTools",
     icon:         "vtools-icon",
     layer:        "vtools",
-    visible:      true,
+    visible:      game.user.isGM,
     onChange:     () => {},
     onToolChange: () => {},
     activeTool:   "vtools-dummy",
