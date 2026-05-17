@@ -97,8 +97,35 @@
   width: 10px;
 }
 
-/* ── Whisper compose dialog ── */
-.vtools-whisper-form textarea {
-  resize: vertical;
-  width: 100%;
+/* ── Whisper banner above chat input ── */
+.vtools-whisper-banner {
+  align-items: center;
+  background: rgba(100, 60, 140, 0.35);
+  border: 1px solid rgba(180, 100, 230, 0.45);
+  border-radius: 4px;
+  color: var(--color-text-light-1, #ccc);
+  display: flex;
+  font-size: 12px;
+  gap: 6px;
+  margin-bottom: 3px;
+  padding: 4px 8px;
+}
+
+.vtools-whisper-banner strong {
+  color: var(--color-text-light-0, #fff);
+}
+
+.vtools-whisper-cancel {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  margin-left: auto;
+  padding: 0 2px;
+}
+
+.vtools-whisper-cancel:hover {
+  color: #fff;
 }

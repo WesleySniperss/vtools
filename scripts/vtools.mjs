@@ -125,38 +125,36 @@ Hooks.on("renderSceneControls", () => {
 
 // ── Whisper feature ──
 
-function _whisperCompose(user) {
-  new Dialog({
-    title: `Whisper → ${user.name}`,
-    content: `
-      <form class="vtools-whisper-form">
-        <div class="form-group">
-          <label>Message</label>
-          <div class="form-fields">
-            <textarea name="message" rows="4" placeholder="Your private message..."></textarea>
-          </div>
-        </div>
-      </form>
-    `,
-    buttons: {
-      send: {
-        icon: '<i class="fas fa-paper-plane"></i>',
-        label: "Send",
-        callback: (html) => {
-          const message = html.querySelector("[name='message']").value.trim();
-          if (!message) return;
-          ChatMessage.create({
-            content: message,
-            whisper: [user.id],
-            speaker: ChatMessage.getSpeaker(),
-          });
-        },
-      },
-      cancel: { label: "Cancel" },
-    },
-    default: "send",
-    render: (html) => html.querySelector("[name='message']")?.focus(),
-  }).render(true);
+let _whisperTarget = null;
+
+function _getChatInput() {
+  return document.querySelector("#chat-message, textarea[name='message']");
+}
+
+function _clearWhisperTarget() {
+  _whisperTarget = null;
+  document.querySelector(".vtools-whisper-banner")?.remove();
+  const input = _getChatInput();
+  if (input) input.placeholder = "";
+}
+
+function _setWhisperTarget(user) {
+  _whisperTarget = user;
+  document.querySelector(".vtools-whisper-banner")?.remove();
+
+  const input = _getChatInput();
+  if (!input) return;
+
+  const banner = document.createElement("div");
+  banner.className = "vtools-whisper-banner";
+  banner.innerHTML = `<i class="fas fa-envelope"></i> Whisper to <strong>${user.name}</strong><button type="button" class="vtools-whisper-cancel" title="Cancel">✕</button>`;
+  banner.querySelector(".vtools-whisper-cancel").addEventListener("click", _clearWhisperTarget);
+
+  const form = input.closest("form") ?? input.parentElement;
+  form.insertAdjacentElement("beforebegin", banner);
+
+  input.placeholder = `Whisper to ${user.name}...`;
+  input.focus();
 }
 
 function _showWhisperPicker(anchorEl) {
@@ -179,7 +177,7 @@ function _showWhisperPicker(anchorEl) {
     item.addEventListener("click", (e) => {
       e.stopPropagation();
       picker.remove();
-      _whisperCompose(user);
+      _setWhisperTarget(user);
     });
     picker.appendChild(item);
   }
@@ -198,6 +196,26 @@ function _showWhisperPicker(anchorEl) {
   setTimeout(() => document.addEventListener("click", onOutside), 0);
 }
 
+function _hookChatInput() {
+  const input = _getChatInput();
+  if (!input || input.dataset.vtoolsHooked) return;
+  input.dataset.vtoolsHooked = "1";
+  input.addEventListener("keydown", (e) => {
+    if (!_whisperTarget || e.key !== "Enter" || e.shiftKey) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    const message = input.value.trim();
+    if (!message) return;
+    ChatMessage.create({
+      content: message,
+      whisper: [_whisperTarget.id],
+      speaker: ChatMessage.getSpeaker(),
+    });
+    input.value = "";
+    _clearWhisperTarget();
+  }, true);
+}
+
 function _hookGmrollBtn() {
   const btn = document.querySelector("button[data-action='rollMode'][data-roll-mode='gmroll']");
   if (!btn || btn.dataset.vtoolsHooked) return;
@@ -206,8 +224,8 @@ function _hookGmrollBtn() {
     e.stopImmediatePropagation();
     e.preventDefault();
     _showWhisperPicker(btn);
-  }, true); // capture — runs before Foundry's own handler
+  }, true);
 }
 
-Hooks.on("renderChatLog", () => _hookGmrollBtn());
-Hooks.once("ready", () => _hookGmrollBtn());
+Hooks.on("renderChatLog", () => { _hookGmrollBtn(); _hookChatInput(); });
+Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); });
