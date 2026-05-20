@@ -53,6 +53,22 @@ Hooks.once("init", () => {
     type: Boolean,
     default: false,
   });
+
+  game.settings.register("vtools", "absorbedControls", {
+    scope: "world",
+    config: false,
+    type: String,
+    default: "[]",
+  });
+
+  game.settings.registerMenu("vtools", "absorbMenu", {
+    name: "Module Absorption",
+    hint: "Move simple module controls (button-only, no canvas layer) into the VTools panel.",
+    label: "Configure",
+    icon: "fas fa-cubes",
+    type: _VToolsAbsorbMenu,
+    restricted: true,
+  });
 });
 
 // Hide player-to-player whispers from GM when setting is off
@@ -228,4 +244,113 @@ function _hookGmrollBtn() {
 }
 
 Hooks.on("renderChatLog", () => { _hookGmrollBtn(); _hookChatInput(); });
-Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); });
+Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); _registerAbsorptionHook(); });
+
+// ── Module Absorption ──
+
+const _CORE_CONTROLS = new Set([
+  "token", "measure", "tiles", "drawings", "walls",
+  "lighting", "sounds", "regions", "notes", "vtools",
+]);
+
+const _detectedAbsorbable = {};
+
+function _isButtonOnly(control) {
+  if (control.layer) return false;
+  const tools = Object.values(control.tools ?? {});
+  return tools.length > 0 && tools.every(t => t.button === true);
+}
+
+function _getAbsorbed() {
+  try { return JSON.parse(game.settings.get("vtools", "absorbedControls")); }
+  catch { return []; }
+}
+
+function _openAbsorbMenu() {
+  const entries = Object.entries(_detectedAbsorbable);
+  if (!entries.length) {
+    ui.notifications.info("VTools: Load a scene first so module controls can be detected.");
+    return;
+  }
+  const absorbed = _getAbsorbed();
+  new Dialog({
+    title: "VTools — Module Absorption",
+    content: `
+      <form>
+        <p style="font-size:12px;color:#aaa;margin:0 0 10px">
+          Only button-only controls without a canvas layer are listed here.
+        </p>
+        ${entries.map(([name, info]) => `
+          <div class="form-group">
+            <label><i class="${info.icon ?? "fas fa-puzzle-piece"}"></i> ${info.title ?? name}</label>
+            <div class="form-fields">
+              <input type="checkbox" name="${name}" ${absorbed.includes(name) ? "checked" : ""}>
+            </div>
+          </div>
+        `).join("")}
+      </form>
+    `,
+    buttons: {
+      save: {
+        icon: '<i class="fas fa-save"></i>',
+        label: "Save",
+        callback: async (html) => {
+          const newAbsorbed = entries
+            .filter(([name]) => html.querySelector(`[name="${name}"]`)?.checked)
+            .map(([name]) => name);
+          await game.settings.set("vtools", "absorbedControls", JSON.stringify(newAbsorbed));
+          ui.controls?.render();
+        },
+      },
+      cancel: { label: "Cancel" },
+    },
+    default: "save",
+  }).render(true);
+}
+
+class _VToolsAbsorbMenu {
+  render() { _openAbsorbMenu(); return this; }
+}
+
+function _registerAbsorptionHook() {
+  Hooks.on("getSceneControlButtons", (controls) => {
+    if (!game.user.isGM) return;
+    const toAbsorb = _getAbsorbed();
+
+    for (const [name, control] of Object.entries(controls)) {
+      if (_CORE_CONTROLS.has(name)) continue;
+
+      // Track all absorbable controls for the settings menu
+      if (_isButtonOnly(control)) {
+        _detectedAbsorbable[name] ??= { title: control.title, icon: control.icon };
+      }
+
+      if (!toAbsorb.includes(name) || !_isButtonOnly(control)) continue;
+
+      // Inject tools directly into the already-built VTools control
+      const vtoolsCtrl = controls["vtools"];
+      if (vtoolsCtrl) {
+        const maxOrder = Math.max(0, ...Object.values(vtoolsCtrl.tools).map(t => t.order ?? 0));
+        let order = maxOrder + 1;
+        for (const tool of Object.values(control.tools)) {
+          if (!tool.button) continue;
+          const id = `abs-${name}-${tool.name}`;
+          vtoolsCtrl.tools[id] = {
+            name:     id,
+            order:    order++,
+            title:    tool.title ?? tool.name,
+            icon:     tool.icon ?? "fas fa-puzzle-piece",
+            visible:  true,
+            button:   true,
+            onChange: tool.onChange ?? (() => {}),
+          };
+        }
+      }
+
+      delete controls[name];
+    }
+  });
+
+  // Re-render so the late-registered hook takes effect immediately
+  ui.controls?.render();
+}
