@@ -308,7 +308,7 @@ function _openAbsorbMenu() {
   }).render(true);
 }
 
-class _VToolsAbsorbMenu {
+class _VToolsAbsorbMenu extends Application {
   render() { _openAbsorbMenu(); return this; }
 }
 
@@ -350,7 +350,4 @@ function _registerAbsorptionHook() {
       delete controls[name];
     }
   });
-
-  // Re-render so the late-registered hook takes effect immediately
-  ui.controls?.render();
 }
