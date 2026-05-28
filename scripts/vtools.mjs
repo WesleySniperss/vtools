@@ -260,16 +260,8 @@ const _DOM_ABSORB = [
 ];
 
 function _absorbDOMModules() {
-  for (const cfg of _DOM_ABSORB) {
-    if (!game.modules.get(cfg.moduleId)?.active) continue;
-    if (VTools._tools.find(t => t.name === cfg.name)) continue;
-    VTools.register({
-      name:    cfg.name,
-      title:   cfg.title,
-      icon:    cfg.icon,
-      onClick: () => document.querySelector(cfg.selector)?.click(),
-    });
-  }
+  // Hiding of DOM buttons is handled in renderSceneControls hook below.
+  // Tool injection into VTools is handled in the late getSceneControlButtons hook.
 }
 
 Hooks.on("renderSceneControls", () => {
@@ -426,6 +418,26 @@ function _registerAbsorptionHook() {
       }
 
       delete controls[name];
+    }
+
+    // Inject DOM-absorbed modules directly into VTools control
+    const vtoolsCtrl = controls["vtools"];
+    if (vtoolsCtrl) {
+      for (const cfg of _DOM_ABSORB) {
+        if (!game.modules.get(cfg.moduleId)?.active) continue;
+        const id = `dom-${cfg.moduleId}`;
+        if (vtoolsCtrl.tools[id]) continue;
+        const maxOrder = Math.max(0, ...Object.values(vtoolsCtrl.tools).map(t => t.order ?? 0));
+        vtoolsCtrl.tools[id] = {
+          name:     id,
+          order:    maxOrder + 1,
+          title:    cfg.title,
+          icon:     cfg.icon,
+          visible:  true,
+          button:   true,
+          onChange: () => document.querySelector(cfg.selector)?.click(),
+        };
+      }
     }
   });
 
