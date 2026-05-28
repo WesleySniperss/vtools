@@ -245,7 +245,39 @@ function _hookGmrollBtn() {
 }
 
 Hooks.on("renderChatLog", () => { _hookGmrollBtn(); _hookChatInput(); });
-Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); _registerAbsorptionHook(); });
+Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); _absorbDOMModules(); _registerAbsorptionHook(); });
+
+// ── DOM-injected module absorption (hardcoded per module) ──
+
+const _DOM_ABSORB = [
+  {
+    moduleId: "bossbar",
+    selector: '[data-tool="bossBar"]',
+    name:     "bossbar-dom",
+    title:    "Boss Bar",
+    icon:     "fas fa-skull",
+  },
+];
+
+function _absorbDOMModules() {
+  for (const cfg of _DOM_ABSORB) {
+    if (!game.modules.get(cfg.moduleId)?.active) continue;
+    if (VTools._tools.find(t => t.name === cfg.name)) continue;
+    VTools.register({
+      name:    cfg.name,
+      title:   cfg.title,
+      icon:    cfg.icon,
+      onClick: () => document.querySelector(cfg.selector)?.click(),
+    });
+  }
+}
+
+Hooks.on("renderSceneControls", () => {
+  for (const cfg of _DOM_ABSORB) {
+    if (!game.modules.get(cfg.moduleId)?.active) continue;
+    document.querySelector(cfg.selector)?.style.setProperty("display", "none", "important");
+  }
+});
 
 // ── Module Absorption ──
 
