@@ -401,8 +401,9 @@ function _openAbsorbMenu() {
         icon: '<i class="fas fa-save"></i>',
         label: "Save",
         callback: async (html) => {
+          const root = html instanceof HTMLElement ? html : html[0];
           const newAbsorbed = entries
-            .filter(([name, info]) => !info.hasLayer && html.querySelector(`[name="${name}"]`)?.checked)
+            .filter(([name, info]) => !info.hasLayer && root.querySelector(`[name="${name}"]`)?.checked)
             .map(([name]) => name);
           await game.settings.set("vtools", "absorbedControls", JSON.stringify(newAbsorbed));
           ui.controls?.render();
