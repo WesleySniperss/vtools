@@ -279,7 +279,7 @@ const _DOM_ABSORB = [
     selector: '[data-tool="bossBar"]',
     name:     "bossbar-dom",
     title:    "Boss Bar",
-    icon:     "fas fa-skull",
+    icon:     "fas fa-dragon",
   },
 ];
 
