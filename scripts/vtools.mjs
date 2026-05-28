@@ -119,6 +119,21 @@ Hooks.on("getSceneControlButtons", (controls) => {
     };
   }
 
+  // DOM-absorbed modules (hardcoded, e.g. bossbar)
+  for (const cfg of _DOM_ABSORB ?? []) {
+    if (!game.modules.get(cfg.moduleId)?.active) continue;
+    const id = `dom-${cfg.moduleId}`;
+    tools[id] = {
+      name:     id,
+      order:    order++,
+      title:    cfg.title,
+      icon:     cfg.icon,
+      visible:  true,
+      button:   true,
+      onChange: () => document.querySelector(cfg.selector)?.click(),
+    };
+  }
+
   // Dummy — activeTool щоб жодна кнопка не виглядала "вибраною"
   tools["vtools-dummy"] = {
     name:    "vtools-dummy",
@@ -429,25 +444,6 @@ function _registerAbsorptionHook() {
       delete controls[name];
     }
 
-    // Inject DOM-absorbed modules directly into VTools control
-    const vtoolsCtrl = controls["vtools"];
-    if (vtoolsCtrl) {
-      for (const cfg of _DOM_ABSORB) {
-        if (!game.modules.get(cfg.moduleId)?.active) continue;
-        const id = `dom-${cfg.moduleId}`;
-        if (vtoolsCtrl.tools[id]) continue;
-        const maxOrder = Math.max(0, ...Object.values(vtoolsCtrl.tools).map(t => t.order ?? 0));
-        vtoolsCtrl.tools[id] = {
-          name:     id,
-          order:    maxOrder + 1,
-          title:    cfg.title,
-          icon:     cfg.icon,
-          visible:  true,
-          button:   true,
-          onChange: () => document.querySelector(cfg.selector)?.click(),
-        };
-      }
-    }
   });
 
   ui.controls?.render();
