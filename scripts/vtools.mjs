@@ -131,13 +131,13 @@ Hooks.on("getSceneControlButtons", (controls) => {
   };
 });
 
-// Ховаємо dummy з DOM після рендеру
+// Ховаємо dummy з DOM після рендеру (тільки сам button, не контейнер)
 Hooks.on("renderSceneControls", () => {
   if (!game.user.isGM) return;
   if (ui.controls?.control?.name !== "vtools") return;
   const toolsEl = document.getElementById("scene-controls-tools");
   const dummy = toolsEl?.querySelector('button[data-tool="vtools-dummy"]');
-  if (dummy?.parentElement) dummy.parentElement.style.display = "none";
+  if (dummy) dummy.style.setProperty("display", "none", "important");
 });
 
 // ── Whisper feature ──
