@@ -313,6 +313,7 @@ class _VToolsAbsorbMenu extends Application {
 }
 
 function _registerAbsorptionHook() {
+  // Registered in `ready` so it runs AFTER all other modules' getSceneControlButtons hooks
   Hooks.on("getSceneControlButtons", (controls) => {
     if (!game.user.isGM) return;
     const toAbsorb = _getAbsorbed();
@@ -320,7 +321,14 @@ function _registerAbsorptionHook() {
     for (const [name, control] of Object.entries(controls)) {
       if (_CORE_CONTROLS.has(name)) continue;
 
-      // Track all absorbable controls for the settings menu
+      // If a module registered itself directly via VTools.register() AND also added
+      // a standalone control, remove the standalone duplicate
+      if (VTools._tools.find(t => t.name === name)) {
+        delete controls[name];
+        continue;
+      }
+
+      // Track button-only controls for the settings menu
       if (_isButtonOnly(control)) {
         _detectedAbsorbable[name] ??= { title: control.title, icon: control.icon };
       }
@@ -350,4 +358,8 @@ function _registerAbsorptionHook() {
       delete controls[name];
     }
   });
+
+  // Trigger one re-render so the late-registered hook takes effect.
+  // This is safe because our hook now also removes VTools.register() duplicates.
+  ui.controls?.render();
 }
