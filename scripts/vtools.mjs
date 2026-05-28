@@ -136,18 +136,19 @@ Hooks.on("getSceneControlButtons", (controls) => {
     };
   }
 
-  // DOM-absorbed modules (hardcoded, e.g. bossbar)
-  for (const cfg of _DOM_ABSORB ?? []) {
-    if (!game.modules.get(cfg.moduleId)?.active) continue;
-    const id = `dom-${cfg.moduleId}`;
+  // Auto-detected DOM-injected tools chosen by user
+  for (const toolId of _getAbsorbedDOM()) {
+    const info = _detectedDOMTools[toolId];
+    if (!info) continue;
+    const id = `dom-auto-${toolId}`;
     tools[id] = {
       name:     id,
       order:    order++,
-      title:    cfg.title,
-      icon:     _uniqueIcon(cfg.icon, usedIcons),
+      title:    info.title,
+      icon:     _uniqueIcon(info.icon, usedIcons),
       visible:  true,
       button:   true,
-      onChange: () => document.querySelector(cfg.selector)?.click(),
+      onChange: () => document.querySelector(info.selector)?.click(),
     };
   }
 
@@ -288,34 +289,63 @@ function _hookGmrollBtn() {
 Hooks.on("renderChatLog", () => { _hookGmrollBtn(); _hookChatInput(); });
 Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); _absorbDOMModules(); _registerAbsorptionHook(); });
 
-// ── DOM-injected module absorption (hardcoded per module) ──
+// ── Auto-detection of DOM-injected module tools ──
 
-const _DOM_ABSORB = [
-  {
-    moduleId: "bossbar",
-    selector: '[data-tool="bossBar"]',
-    name:     "bossbar-dom",
-    title:    "Boss Bar",
-    icon:     "fas fa-dragon",
-  },
-];
+// toolId → { title, icon, selector }
+const _detectedDOMTools = {};
 
-function _absorbDOMModules() {
-  // Hiding of DOM buttons is handled in renderSceneControls hook below.
-  // Tool injection into VTools is handled in the late getSceneControlButtons hook.
+function _getAbsorbedDOM() {
+  return _getAbsorbed().filter(s => s.startsWith("dom:")).map(s => s.slice(4));
 }
 
+function _scanDOMTools() {
+  // Collect all tool IDs already registered in any scene control
+  const knownIds = new Set();
+  for (const ctrl of Object.values(ui.controls?.controls ?? {})) {
+    for (const id of Object.keys(ctrl.tools ?? {})) knownIds.add(id);
+  }
+  // Also skip VTools auto-injected ids
+  for (const t of VTools._tools) knownIds.add(t.name);
+
+  for (const btn of document.querySelectorAll("[data-tool]")) {
+    const toolId = btn.dataset.tool;
+    if (!toolId || knownIds.has(toolId) || _detectedDOMTools[toolId]) continue;
+    const iEl = btn.querySelector("i");
+    _detectedDOMTools[toolId] = {
+      title:    btn.getAttribute("aria-label") ?? btn.title ?? toolId,
+      icon:     iEl ? [...iEl.classList].join(" ") : "fas fa-puzzle-piece",
+      selector: `[data-tool="${toolId}"]`,
+    };
+  }
+}
+
+function _absorbDOMModules() {} // kept for compat, logic moved to renderSceneControls
+
 Hooks.on("renderSceneControls", () => {
-  for (const cfg of _DOM_ABSORB) {
-    if (!game.modules.get(cfg.moduleId)?.active) continue;
-    const btn = document.querySelector(cfg.selector);
-    if (!btn) continue;
-    // Read real icon from DOM button on first encounter
-    if (!cfg.iconDetected) {
-      const iEl = btn.querySelector("i");
-      if (iEl) { cfg.icon = [...iEl.classList].join(" "); cfg.iconDetected = true; }
-    }
-    btn.style.setProperty("display", "none", "important");
+  if (!game.user.isGM) return;
+
+  // Scan and hide dummy
+  if (ui.controls?.control?.name === "vtools") {
+    document.querySelector('[data-tool="vtools-dummy"]')
+      ?.style.setProperty("display", "none", "important");
+  }
+
+  // Scan DOM for new injected tools
+  const prevCount = Object.keys(_detectedDOMTools).length;
+  _scanDOMTools();
+
+  // Hide absorbed DOM tools
+  const absorbedDOM = _getAbsorbedDOM();
+  for (const toolId of absorbedDOM) {
+    const info = _detectedDOMTools[toolId];
+    if (info) document.querySelector(info.selector)
+      ?.style.setProperty("display", "none", "important");
+  }
+
+  // If newly detected tools are in absorbed list → re-render so they appear in VTools
+  if (Object.keys(_detectedDOMTools).length > prevCount) {
+    const hasNewAbsorbed = absorbedDOM.some(id => _detectedDOMTools[id]);
+    if (hasNewAbsorbed) ui.controls?.render();
   }
 });
 
@@ -369,42 +399,54 @@ function _scanFromUI() {
 
 function _openAbsorbMenu() {
   _scanFromUI();
-  const entries = Object.entries(_detectedControls);
+  _scanDOMTools();
 
-  if (!entries.length) {
-    ui.notifications.warn("VTools: No module controls detected — activate a scene and try again.");
+  const ctrlEntries  = Object.entries(_detectedControls)
+    .map(([id, info]) => ({ id, ...info, isDom: false }));
+  const domEntries   = Object.entries(_detectedDOMTools)
+    .map(([toolId, info]) => ({ id: `dom:${toolId}`, ...info, hasLayer: false, isDom: true }));
+  const allEntries   = [...ctrlEntries, ...domEntries];
+
+  if (!allEntries.length) {
+    ui.notifications.warn("VTools: No module controls detected — activate a scene first.");
     return;
   }
 
   const absorbed = _getAbsorbed();
+
+  const row = ({ id, icon, title, hasLayer }) => `
+    <div class="form-group">
+      <label><i class="${icon ?? "fas fa-puzzle-piece"}"></i> ${title ?? id}
+        ${hasLayer ? " <span style='color:#f90' title='Has canvas layer'>⚠</span>" : ""}
+      </label>
+      <div class="form-fields">
+        <input type="checkbox" name="${id}"
+          ${absorbed.includes(id) ? "checked" : ""}
+          ${hasLayer ? "disabled" : ""}>
+      </div>
+    </div>`;
+
   new Dialog({
     title: "VTools — Module Absorption",
     content: `
-      <form>
-        <p style="font-size:12px;color:#aaa;margin:0 0 10px">
-          Controls with a canvas layer cannot be absorbed safely and are disabled.
+      <form style="max-height:420px;overflow-y:auto">
+        <p style="font-size:12px;color:#aaa;margin:0 0 8px">
+          ⚠ = has canvas layer, cannot be absorbed.
         </p>
-        ${entries.map(([name, info]) => `
-          <div class="form-group">
-            <label><i class="${info.icon ?? "fas fa-puzzle-piece"}"></i> ${info.title ?? name}</label>
-            <div class="form-fields">
-              <input type="checkbox" name="${name}"
-                ${absorbed.includes(name) ? "checked" : ""}
-                ${info.hasLayer ? "disabled title='Has canvas layer — cannot be absorbed'" : ""}>
-            </div>
-          </div>
-        `).join("")}
-      </form>
-    `,
+        ${ctrlEntries.length  ? `<p style="font-size:11px;color:#777;margin:6px 0 2px">SCENE CONTROLS</p>` : ""}
+        ${ctrlEntries.map(row).join("")}
+        ${domEntries.length   ? `<p style="font-size:11px;color:#777;margin:10px 0 2px">DOM-INJECTED TOOLS</p>` : ""}
+        ${domEntries.map(row).join("")}
+      </form>`,
     buttons: {
       save: {
         icon: '<i class="fas fa-save"></i>',
         label: "Save",
         callback: async (html) => {
           const root = html instanceof HTMLElement ? html : html[0];
-          const newAbsorbed = entries
-            .filter(([name, info]) => !info.hasLayer && root.querySelector(`[name="${name}"]`)?.checked)
-            .map(([name]) => name);
+          const newAbsorbed = allEntries
+            .filter(e => !e.hasLayer && root.querySelector(`[name="${e.id}"]`)?.checked)
+            .map(e => e.id);
           await game.settings.set("vtools", "absorbedControls", JSON.stringify(newAbsorbed));
           ui.controls?.render();
         },
