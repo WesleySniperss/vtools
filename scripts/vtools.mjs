@@ -291,6 +291,11 @@ Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); _absorbDOMModule
 
 // ── Auto-detection of DOM-injected module tools ──
 
+// Known DOM-injected tools (hardcoded seeds — always show in dialog, auto-absorbed by default)
+const _DOM_KNOWN = [
+  { toolId: "bossBar", moduleId: "bossbar", title: "Boss Bar", icon: "fas fa-dragon" },
+];
+
 // toolId → { title, icon, selector }
 const _detectedDOMTools = {};
 
@@ -298,18 +303,38 @@ function _getAbsorbedDOM() {
   return _getAbsorbed().filter(s => s.startsWith("dom:")).map(s => s.slice(4));
 }
 
-function _scanDOMTools() {
-  // Collect all tool IDs already registered in any scene control
-  const knownIds = new Set();
-  for (const ctrl of Object.values(ui.controls?.controls ?? {})) {
-    for (const id of Object.keys(ctrl.tools ?? {})) knownIds.add(id);
+// Pre-seed known entries and auto-add to absorbed if not yet configured
+function _initKnownDOMTools() {
+  const absorbed = _getAbsorbed();
+  let changed = false;
+  for (const k of _DOM_KNOWN) {
+    if (!game.modules.get(k.moduleId)?.active) continue;
+    _detectedDOMTools[k.toolId] ??= {
+      title: k.title, icon: k.icon, selector: `[data-tool="${k.toolId}"]`,
+    };
+    // Auto-add on first run (user can uncheck later in dialog)
+    if (!absorbed.includes(`dom:${k.toolId}`) && !absorbed.includes(`dom:${k.toolId}__removed`)) {
+      absorbed.push(`dom:${k.toolId}`);
+      changed = true;
+    }
   }
-  // Also skip VTools auto-injected ids
-  for (const t of VTools._tools) knownIds.add(t.name);
+  if (changed) game.settings.set("vtools", "absorbedControls", JSON.stringify(absorbed));
+}
+
+function _scanDOMTools() {
+  // Exclude only native core tool IDs (from CORE controls), not module tools added to tokens etc.
+  const coreToolIds = new Set();
+  for (const [ctrlName, ctrl] of Object.entries(ui.controls?.controls ?? {})) {
+    if (!_isCoreControl(ctrl)) continue; // skip non-core controls
+    for (const id of Object.keys(ctrl.tools ?? {})) coreToolIds.add(id);
+  }
+  for (const t of VTools._tools) coreToolIds.add(t.name);
+  // Also skip already-detected
+  for (const id of Object.keys(_detectedDOMTools)) coreToolIds.add(id);
 
   for (const btn of document.querySelectorAll("[data-tool]")) {
     const toolId = btn.dataset.tool;
-    if (!toolId || knownIds.has(toolId) || _detectedDOMTools[toolId]) continue;
+    if (!toolId || coreToolIds.has(toolId)) continue;
     const iEl = btn.querySelector("i");
     _detectedDOMTools[toolId] = {
       title:    btn.getAttribute("aria-label") ?? btn.title ?? toolId,
@@ -319,12 +344,14 @@ function _scanDOMTools() {
   }
 }
 
-function _absorbDOMModules() {} // kept for compat, logic moved to renderSceneControls
+function _absorbDOMModules() {
+  _initKnownDOMTools();
+}
 
 Hooks.on("renderSceneControls", () => {
   if (!game.user.isGM) return;
 
-  // Scan and hide dummy
+  // Hide dummy
   if (ui.controls?.control?.name === "vtools") {
     document.querySelector('[data-tool="vtools-dummy"]')
       ?.style.setProperty("display", "none", "important");
@@ -334,7 +361,7 @@ Hooks.on("renderSceneControls", () => {
   const prevCount = Object.keys(_detectedDOMTools).length;
   _scanDOMTools();
 
-  // Hide absorbed DOM tools
+  // Hide all absorbed DOM tools
   const absorbedDOM = _getAbsorbedDOM();
   for (const toolId of absorbedDOM) {
     const info = _detectedDOMTools[toolId];
@@ -342,7 +369,7 @@ Hooks.on("renderSceneControls", () => {
       ?.style.setProperty("display", "none", "important");
   }
 
-  // If newly detected tools are in absorbed list → re-render so they appear in VTools
+  // If newly detected absorbed tools found → re-render so they appear in VTools
   if (Object.keys(_detectedDOMTools).length > prevCount) {
     const hasNewAbsorbed = absorbedDOM.some(id => _detectedDOMTools[id]);
     if (hasNewAbsorbed) ui.controls?.render();
