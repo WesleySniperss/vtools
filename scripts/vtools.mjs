@@ -249,18 +249,25 @@ Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); _registerAbsorpt
 
 // ── Module Absorption ──
 
+// v13 renamed core controls to Group* — keep both v12 and v13 names
 const _CORE_CONTROLS = new Set([
   "token", "measure", "tiles", "drawings", "walls",
   "lighting", "sounds", "regions", "notes", "vtools",
+  "tokens", "measurements", "templates",
+  "GroupToken", "GroupMeasure", "GroupTile", "GroupDrawing",
+  "GroupWall", "GroupLight", "GroupSound", "GroupRegion", "GroupNote",
 ]);
 
-// name → { title, icon } for all detected non-core controls
-const _detectedControls = {};
-
-// Safe to absorb = no canvas layer
-function _isSafeToAbsorb(control) {
-  return !control.layer;
+function _isCoreControl(control) {
+  if (!control?.name) return true;
+  if (_CORE_CONTROLS.has(control.name)) return true;
+  // Unlocalized Foundry title key = built-in control
+  if (typeof control.title === "string" && control.title.startsWith("CONTROLS.")) return true;
+  return false;
 }
+
+// name → { title, icon, hasLayer }
+const _detectedControls = {};
 
 function _getAbsorbed() {
   try { return JSON.parse(game.settings.get("vtools", "absorbedControls")); }
@@ -271,10 +278,10 @@ function _scanFromUI() {
   const raw = ui.controls?.controls ?? {};
   const arr = Array.isArray(raw) ? raw : Object.values(raw);
   for (const control of arr) {
-    if (!control?.name || _CORE_CONTROLS.has(control.name)) continue;
+    if (_isCoreControl(control)) continue;
     _detectedControls[control.name] ??= {
-      title: control.title,
-      icon:  control.icon,
+      title:    control.title ?? control.name,
+      icon:     control.icon,
       hasLayer: !!control.layer,
     };
   }
@@ -342,7 +349,7 @@ function _registerAbsorptionHook() {
     const toAbsorb = _getAbsorbed();
 
     for (const [name, control] of Object.entries(controls)) {
-      if (_CORE_CONTROLS.has(name)) continue;
+      if (_isCoreControl(control)) continue;
 
       // Remove standalone duplicate of anything already in VTools via VTools.register()
       if (VTools._tools.find(t => t.name === name)) {
@@ -352,7 +359,7 @@ function _registerAbsorptionHook() {
 
       // Track ALL non-core controls for the menu
       const hasLayer = !!control.layer;
-      _detectedControls[name] ??= { title: control.title, icon: control.icon, hasLayer };
+      _detectedControls[name] ??= { title: control.title ?? name, icon: control.icon, hasLayer };
 
       if (!toAbsorb.includes(name) || hasLayer) continue;
 
