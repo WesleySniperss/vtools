@@ -266,6 +266,14 @@ function _isCoreControl(control) {
   return false;
 }
 
+// In v13 ALL controls have control.layer set — check if it's a real canvas layer/group
+function _isCanvasLayer(control) {
+  if (!control.layer) return false;
+  const layers = CONFIG.Canvas?.layers ?? {};
+  const groups = CONFIG.Canvas?.groups ?? {};
+  return (control.layer in layers) || (control.layer in groups);
+}
+
 // name → { title, icon, hasLayer }
 const _detectedControls = {};
 
@@ -282,7 +290,7 @@ function _scanFromUI() {
     _detectedControls[control.name] ??= {
       title:    control.title ?? control.name,
       icon:     control.icon,
-      hasLayer: !!control.layer,
+      hasLayer: _isCanvasLayer(control),
     };
   }
 }
@@ -358,7 +366,7 @@ function _registerAbsorptionHook() {
       }
 
       // Track ALL non-core controls for the menu
-      const hasLayer = !!control.layer;
+      const hasLayer = _isCanvasLayer(control);
       _detectedControls[name] ??= { title: control.title ?? name, icon: control.icon, hasLayer };
 
       if (!toAbsorb.includes(name) || hasLayer) continue;
