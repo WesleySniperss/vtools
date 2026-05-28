@@ -256,12 +256,12 @@ const _CORE_CONTROLS = new Set([
   "lighting", "sounds", "regions", "notes", "vtools",
 ]);
 
-const _detectedAbsorbable = {};
+// name → { title, icon } for all detected non-core controls
+const _detectedControls = {};
 
-function _isButtonOnly(control) {
-  if (control.layer) return false;
-  const tools = Object.values(control.tools ?? {});
-  return tools.length > 0 && tools.every(t => t.button === true);
+// Safe to absorb = no canvas layer
+function _isSafeToAbsorb(control) {
+  return !control.layer;
 }
 
 function _getAbsorbed() {
@@ -270,24 +270,37 @@ function _getAbsorbed() {
 }
 
 function _openAbsorbMenu() {
-  const entries = Object.entries(_detectedAbsorbable);
+  const entries = Object.entries(_detectedControls);
+
   if (!entries.length) {
-    ui.notifications.info("VTools: Load a scene first so module controls can be detected.");
+    // Force a scan, then reopen
+    ui.controls?.render();
+    setTimeout(() => {
+      const rescanned = Object.entries(_detectedControls);
+      if (!rescanned.length) {
+        ui.notifications.warn("VTools: No module controls detected. Make sure a scene is active.");
+      } else {
+        _openAbsorbMenu();
+      }
+    }, 300);
     return;
   }
+
   const absorbed = _getAbsorbed();
   new Dialog({
     title: "VTools — Module Absorption",
     content: `
       <form>
         <p style="font-size:12px;color:#aaa;margin:0 0 10px">
-          Only button-only controls without a canvas layer are listed here.
+          Controls with a canvas layer cannot be absorbed safely and are disabled.
         </p>
         ${entries.map(([name, info]) => `
           <div class="form-group">
             <label><i class="${info.icon ?? "fas fa-puzzle-piece"}"></i> ${info.title ?? name}</label>
             <div class="form-fields">
-              <input type="checkbox" name="${name}" ${absorbed.includes(name) ? "checked" : ""}>
+              <input type="checkbox" name="${name}"
+                ${absorbed.includes(name) ? "checked" : ""}
+                ${info.hasLayer ? "disabled title='Has canvas layer — cannot be absorbed'" : ""}>
             </div>
           </div>
         `).join("")}
@@ -299,7 +312,7 @@ function _openAbsorbMenu() {
         label: "Save",
         callback: async (html) => {
           const newAbsorbed = entries
-            .filter(([name]) => html.querySelector(`[name="${name}"]`)?.checked)
+            .filter(([name, info]) => !info.hasLayer && html.querySelector(`[name="${name}"]`)?.checked)
             .map(([name]) => name);
           await game.settings.set("vtools", "absorbedControls", JSON.stringify(newAbsorbed));
           ui.controls?.render();
@@ -312,7 +325,6 @@ function _openAbsorbMenu() {
 }
 
 function _registerAbsorptionHook() {
-  // Registered in `ready` so it runs AFTER all other modules' getSceneControlButtons hooks
   Hooks.on("getSceneControlButtons", (controls) => {
     if (!game.user.isGM) return;
     const toAbsorb = _getAbsorbed();
@@ -320,27 +332,27 @@ function _registerAbsorptionHook() {
     for (const [name, control] of Object.entries(controls)) {
       if (_CORE_CONTROLS.has(name)) continue;
 
-      // If a module registered itself directly via VTools.register() AND also added
-      // a standalone control, remove the standalone duplicate
+      // Remove standalone duplicate of anything already in VTools via VTools.register()
       if (VTools._tools.find(t => t.name === name)) {
         delete controls[name];
         continue;
       }
 
-      // Track button-only controls for the settings menu
-      if (_isButtonOnly(control)) {
-        _detectedAbsorbable[name] ??= { title: control.title, icon: control.icon };
-      }
+      // Track ALL non-core controls for the menu
+      const hasLayer = !!control.layer;
+      _detectedControls[name] ??= { title: control.title, icon: control.icon, hasLayer };
 
-      if (!toAbsorb.includes(name) || !_isButtonOnly(control)) continue;
+      if (!toAbsorb.includes(name) || hasLayer) continue;
 
-      // Inject tools directly into the already-built VTools control
+      // Inject into VTools — handle both Array and Object tools (v13 compat)
       const vtoolsCtrl = controls["vtools"];
       if (vtoolsCtrl) {
+        const toolsArr = Array.isArray(control.tools)
+          ? control.tools
+          : Object.values(control.tools ?? {});
         const maxOrder = Math.max(0, ...Object.values(vtoolsCtrl.tools).map(t => t.order ?? 0));
         let order = maxOrder + 1;
-        for (const tool of Object.values(control.tools)) {
-          if (!tool.button) continue;
+        for (const tool of toolsArr) {
           const id = `abs-${name}-${tool.name}`;
           vtoolsCtrl.tools[id] = {
             name:     id,
@@ -349,7 +361,7 @@ function _registerAbsorptionHook() {
             icon:     tool.icon ?? "fas fa-puzzle-piece",
             visible:  true,
             button:   true,
-            onChange: tool.onChange ?? (() => {}),
+            onChange: tool.onChange ?? tool.onClick ?? (() => {}),
           };
         }
       }
@@ -358,7 +370,5 @@ function _registerAbsorptionHook() {
     }
   });
 
-  // Trigger one re-render so the late-registered hook takes effect.
-  // This is safe because our hook now also removes VTools.register() duplicates.
   ui.controls?.render();
 }
