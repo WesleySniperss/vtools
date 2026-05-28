@@ -267,20 +267,25 @@ function _getAbsorbed() {
   catch { return []; }
 }
 
+function _scanFromUI() {
+  const raw = ui.controls?.controls ?? {};
+  const arr = Array.isArray(raw) ? raw : Object.values(raw);
+  for (const control of arr) {
+    if (!control?.name || _CORE_CONTROLS.has(control.name)) continue;
+    _detectedControls[control.name] ??= {
+      title: control.title,
+      icon:  control.icon,
+      hasLayer: !!control.layer,
+    };
+  }
+}
+
 function _openAbsorbMenu() {
+  _scanFromUI();
   const entries = Object.entries(_detectedControls);
 
   if (!entries.length) {
-    // Force a scan, then reopen
-    ui.controls?.render();
-    setTimeout(() => {
-      const rescanned = Object.entries(_detectedControls);
-      if (!rescanned.length) {
-        ui.notifications.warn("VTools: No module controls detected. Make sure a scene is active.");
-      } else {
-        _openAbsorbMenu();
-      }
-    }, 300);
+    ui.notifications.warn("VTools: No module controls detected — activate a scene and try again.");
     return;
   }
 
