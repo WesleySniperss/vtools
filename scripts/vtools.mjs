@@ -538,6 +538,18 @@ function _registerAbsorptionHook() {
       delete controls[name];
     }
 
+    // Remove absorbed DOM tools from ALL controls' tool lists
+    // (handles modules that inject as sub-tools of core controls, e.g. Boss Bar in tokens)
+    const absorbedDOM = _getAbsorbedDOM();
+    if (absorbedDOM.length) {
+      for (const ctrl of Object.values(controls)) {
+        if (!ctrl.tools) continue;
+        for (const toolId of absorbedDOM) {
+          if (ctrl.tools[toolId]) delete ctrl.tools[toolId];
+        }
+      }
+    }
+
   });
 
   ui.controls?.render();
