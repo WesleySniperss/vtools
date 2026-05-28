@@ -101,18 +101,35 @@ Hooks.once("setup", () => {
   VTools._ready = true;
 });
 
+// Fallback icons used when two tools share the same icon
+const _ICON_FALLBACKS = [
+  "fas fa-wand-magic-sparkles", "fas fa-bolt", "fas fa-fire", "fas fa-gem",
+  "fas fa-leaf", "fas fa-moon", "fas fa-sun", "fas fa-anchor",
+  "fas fa-feather-pointed", "fas fa-hat-wizard", "fas fa-chess-knight",
+  "fas fa-flask", "fas fa-drum", "fas fa-wind", "fas fa-tornado",
+];
+
+function _uniqueIcon(icon, usedIcons) {
+  if (!usedIcons.has(icon)) { usedIcons.add(icon); return icon; }
+  for (const fb of _ICON_FALLBACKS) {
+    if (!usedIcons.has(fb)) { usedIcons.add(fb); return fb; }
+  }
+  return icon;
+}
+
 Hooks.on("getSceneControlButtons", (controls) => {
   if (!game.user.isGM) return;
   const toolEntries = VTools._tools.length > 0 ? VTools._tools : [];
 
   const tools = {};
+  const usedIcons = new Set();
   let order = 1;
   for (const t of toolEntries) {
     tools[t.name] = {
       name:     t.name,
       order:    order++,
       title:    t.title ?? t.name,
-      icon:     t.icon,
+      icon:     _uniqueIcon(t.icon, usedIcons),
       visible:  true,
       button:   true,
       onChange: () => t.onClick(),
@@ -127,7 +144,7 @@ Hooks.on("getSceneControlButtons", (controls) => {
       name:     id,
       order:    order++,
       title:    cfg.title,
-      icon:     cfg.icon,
+      icon:     _uniqueIcon(cfg.icon, usedIcons),
       visible:  true,
       button:   true,
       onChange: () => document.querySelector(cfg.selector)?.click(),
@@ -291,7 +308,14 @@ function _absorbDOMModules() {
 Hooks.on("renderSceneControls", () => {
   for (const cfg of _DOM_ABSORB) {
     if (!game.modules.get(cfg.moduleId)?.active) continue;
-    document.querySelector(cfg.selector)?.style.setProperty("display", "none", "important");
+    const btn = document.querySelector(cfg.selector);
+    if (!btn) continue;
+    // Read real icon from DOM button on first encounter
+    if (!cfg.iconDetected) {
+      const iEl = btn.querySelector("i");
+      if (iEl) { cfg.icon = [...iEl.classList].join(" "); cfg.iconDetected = true; }
+    }
+    btn.style.setProperty("display", "none", "important");
   }
 });
 
