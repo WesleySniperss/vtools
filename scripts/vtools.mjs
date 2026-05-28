@@ -43,8 +43,18 @@ class VToolsAPI {
 const VTools = new VToolsAPI();
 window.VTools = VTools;
 
+// ── VTools Canvas Layer (needed for v13 to show tools in secondary panel) ──
+class _VToolsLayer extends CanvasLayer {
+  static get layerOptions() {
+    return foundry.utils.mergeObject(super.layerOptions, { name: "vtools", zIndex: 9998 });
+  }
+  async _draw(options = {}) { return this; }
+  async _tearDown(options = {}) { return this; }
+}
+
 // ── Settings ──
 Hooks.once("init", () => {
+  CONFIG.Canvas.layers["vtools"] = { layerClass: _VToolsLayer, group: "interface" };
   game.settings.register("vtools", "gmSeesWhispers", {
     name: "GM sees player whispers",
     hint: "When enabled, the GM can see private whisper messages sent between players.",
@@ -131,72 +141,12 @@ Hooks.on("getSceneControlButtons", (controls) => {
   };
 });
 
-// ── VTools floating panel ──
-
-function _buildVToolsEntries() {
-  const entries = [];
-  for (const t of VTools._tools) {
-    entries.push({ name: t.name, title: t.title, icon: t.icon, onClick: t.onClick });
-  }
-  for (const cfg of _DOM_ABSORB) {
-    if (!game.modules.get(cfg.moduleId)?.active) continue;
-    if (!entries.find(e => e.name === cfg.name)) {
-      entries.push({ name: cfg.name, title: cfg.title, icon: cfg.icon,
-        onClick: () => document.querySelector(cfg.selector)?.click() });
-    }
-  }
-  // Also include getSceneControlButtons-absorbed tools from controls object
-  const vtoolsTools = ui.controls?.controls?.vtools?.tools ?? {};
-  for (const [name, tool] of Object.entries(vtoolsTools)) {
-    if (name === "vtools-dummy") continue;
-    if (!entries.find(e => e.name === name)) {
-      entries.push({ name, title: tool.title, icon: tool.icon, onClick: tool.onChange ?? (() => {}) });
-    }
-  }
-  return entries;
-}
-
-function _toggleVToolsPanel(anchorBtn) {
-  const existing = document.getElementById("vtools-panel");
-  if (existing) { existing.remove(); return; }
-
-  const entries = _buildVToolsEntries();
-  const panel = document.createElement("div");
-  panel.id = "vtools-panel";
-
-  if (!entries.length) {
-    panel.innerHTML = '<p class="vtools-empty">No tools registered.</p>';
-  } else {
-    for (const t of entries) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "vtools-tool-btn";
-      btn.innerHTML = `<i class="${t.icon}"></i><span>${t.title}</span>`;
-      btn.addEventListener("click", () => { t.onClick(); panel.remove(); });
-      panel.appendChild(btn);
-    }
-  }
-
-  const rect = anchorBtn.getBoundingClientRect();
-  panel.style.top  = `${rect.top}px`;
-  panel.style.left = `${rect.right + 6}px`;
-  document.body.appendChild(panel);
-
-  setTimeout(() => document.addEventListener("click", (e) => {
-    if (!panel.contains(e.target) && e.target !== anchorBtn) panel.remove();
-  }, { once: true }), 0);
-}
-
+// Hide the dummy tool from DOM after render
 Hooks.on("renderSceneControls", () => {
   if (!game.user.isGM) return;
-  const vtoolsBtn = document.querySelector('[data-control="vtools"]');
-  if (!vtoolsBtn || vtoolsBtn.dataset.vtoolsPanelHooked) return;
-  vtoolsBtn.dataset.vtoolsPanelHooked = "1";
-  vtoolsBtn.addEventListener("click", (e) => {
-    e.stopImmediatePropagation();
-    e.preventDefault();
-    _toggleVToolsPanel(vtoolsBtn);
-  }, true);
+  if (ui.controls?.control?.name !== "vtools") return;
+  document.querySelector('[data-tool="vtools-dummy"]')
+    ?.style.setProperty("display", "none", "important");
 });
 
 // ── Whisper feature ──
