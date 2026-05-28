@@ -61,14 +61,6 @@ Hooks.once("init", () => {
     default: "[]",
   });
 
-  game.settings.registerMenu("vtools", "absorbMenu", {
-    name: "Module Absorption",
-    hint: "Move simple module controls (button-only, no canvas layer) into the VTools panel.",
-    label: "Configure",
-    icon: "fas fa-cubes",
-    type: _VToolsAbsorbMenu,
-    restricted: true,
-  });
 });
 
 // Hide player-to-player whispers from GM when setting is off
@@ -107,6 +99,17 @@ Hooks.on("getSceneControlButtons", (controls) => {
       onChange: () => t.onClick(),
     };
   }
+
+  // Module Absorption configure button (always present for GM)
+  tools["vtools-absorb"] = {
+    name:     "vtools-absorb",
+    order:    997,
+    title:    "Module Absorption",
+    icon:     "fas fa-cubes",
+    visible:  true,
+    button:   true,
+    onChange: () => _openAbsorbMenu(),
+  };
 
   // Dummy — activeTool щоб жодна кнопка не виглядала "вибраною"
   tools["vtools-dummy"] = {
@@ -306,10 +309,6 @@ function _openAbsorbMenu() {
     },
     default: "save",
   }).render(true);
-}
-
-class _VToolsAbsorbMenu extends Application {
-  render() { _openAbsorbMenu(); return this; }
 }
 
 function _registerAbsorptionHook() {
