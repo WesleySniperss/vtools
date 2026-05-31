@@ -138,6 +138,8 @@ Hooks.on("getSceneControlButtons", (controls) => {
 
   // Auto-detected DOM-injected tools chosen by user
   for (const toolId of _getAbsorbedDOM()) {
+    // Skip if already registered via VTools.register()
+    if (VTools._tools.find(t => t.name === toolId)) continue;
     const info = _detectedDOMTools[toolId];
     if (!info) continue;
     const id = `dom-auto-${toolId}`;
@@ -293,7 +295,9 @@ Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); _absorbDOMModule
 
 // Known DOM-injected tools (hardcoded seeds — always show in dialog, auto-absorbed by default)
 const _DOM_KNOWN = [
-  { toolId: "bossBar", moduleId: "bossbar", title: "Boss Bar", icon: "fas fa-dragon" },
+  { toolId: "bossBar", moduleId: "bossbar", title: "Boss Bar", icon: "fas fa-dragon",
+    // Boss Bar may appear as a standalone control or sub-tool depending on version
+    selector: '[data-tool="bossBar"], [data-control="bossBar"]' },
 ];
 
 // toolId → { title, icon, selector }
@@ -310,7 +314,8 @@ function _initKnownDOMTools() {
   for (const k of _DOM_KNOWN) {
     if (!game.modules.get(k.moduleId)?.active) continue;
     _detectedDOMTools[k.toolId] ??= {
-      title: k.title, icon: k.icon, selector: `[data-tool="${k.toolId}"]`,
+      title: k.title, icon: k.icon,
+      selector: k.selector ?? `[data-tool="${k.toolId}"]`,
     };
     // Auto-add on first run (user can uncheck later in dialog)
     if (!absorbed.includes(`dom:${k.toolId}`) && !absorbed.includes(`dom:${k.toolId}__removed`)) {
@@ -361,12 +366,14 @@ Hooks.on("renderSceneControls", () => {
   const prevCount = Object.keys(_detectedDOMTools).length;
   _scanDOMTools();
 
-  // Hide all absorbed DOM tools
+  // Hide all absorbed DOM tools (keep in DOM so click-proxy works)
   const absorbedDOM = _getAbsorbedDOM();
   for (const toolId of absorbedDOM) {
     const info = _detectedDOMTools[toolId];
-    if (info) document.querySelector(info.selector)
-      ?.style.setProperty("display", "none", "important");
+    if (!info) continue;
+    for (const el of document.querySelectorAll(info.selector)) {
+      el.style.setProperty("display", "none", "important");
+    }
   }
 
   // If newly detected absorbed tools found → re-render so they appear in VTools
@@ -523,6 +530,9 @@ function _registerAbsorptionHook() {
         let order = maxOrder + 1;
         for (const tool of toolsArr) {
           const id = `abs-${name}-${tool.name}`;
+          // Skip if already registered via VTools.register() to prevent duplicates
+          if (VTools._tools.find(t => t.name === tool.name)) continue;
+          if (vtoolsCtrl.tools[id]) continue;
           vtoolsCtrl.tools[id] = {
             name:     id,
             order:    order++,
@@ -536,18 +546,6 @@ function _registerAbsorptionHook() {
       }
 
       delete controls[name];
-    }
-
-    // Remove absorbed DOM tools from ALL controls' tool lists
-    // (handles modules that inject as sub-tools of core controls, e.g. Boss Bar in tokens)
-    const absorbedDOM = _getAbsorbedDOM();
-    if (absorbedDOM.length) {
-      for (const ctrl of Object.values(controls)) {
-        if (!ctrl.tools) continue;
-        for (const toolId of absorbedDOM) {
-          if (ctrl.tools[toolId]) delete ctrl.tools[toolId];
-        }
-      }
     }
 
   });
