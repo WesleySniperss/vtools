@@ -584,6 +584,34 @@ function _registerAbsorptionHook() {
       delete controls[name];
     }
 
+    // For absorbed DOM tools that live as sub-tools of another control (e.g. Boss Bar
+    // inside the tokens control), capture their REAL handler and rebind the VTools proxy.
+    // DOM click-proxy fails because v13 removes a control's tools from the DOM when it's
+    // not the active control — so the hidden button isn't there to click.
+    const vtoolsCtrl = controls["vtools"];
+    if (vtoolsCtrl) {
+      const absorbedDOM = _getAbsorbedDOM();
+      for (const toolId of absorbedDOM) {
+        const proxyId = `dom-auto-${toolId}`;
+        const proxy = vtoolsCtrl.tools[proxyId];
+        if (!proxy) continue;
+        // Find the source tool object across all controls
+        let srcTool = null;
+        for (const ctrl of Object.values(controls)) {
+          const t = ctrl.tools?.[toolId];
+          if (t) { srcTool = t; break; }
+        }
+        const realHandler = srcTool?.onChange ?? srcTool?.onClick;
+        if (typeof realHandler === "function") {
+          proxy.onChange = (...args) => realHandler(...args);
+        } else {
+          // Fallback: proxy-click the DOM button if it happens to be present
+          const info = _getDOMToolInfo(toolId);
+          if (info) proxy.onChange = () => document.querySelector(info.selector)?.click();
+        }
+      }
+    }
+
   });
 
   ui.controls?.render();
