@@ -140,7 +140,7 @@ Hooks.on("getSceneControlButtons", (controls) => {
   for (const toolId of _getAbsorbedDOM()) {
     // Skip if already registered via VTools.register()
     if (VTools._tools.find(t => t.name === toolId)) continue;
-    const info = _detectedDOMTools[toolId];
+    const info = _getDOMToolInfo(toolId);
     if (!info) continue;
     const id = `dom-auto-${toolId}`;
     tools[id] = {
@@ -303,27 +303,44 @@ const _DOM_KNOWN = [
 // toolId → { title, icon, selector }
 const _detectedDOMTools = {};
 
+// Effective absorbed DOM tool list. Known tools are absorbed by DEFAULT
+// unless the user explicitly removed them (marker "dom:<id>__removed").
+// Computed fresh each call → no dependency on async settings writes.
 function _getAbsorbedDOM() {
-  return _getAbsorbed().filter(s => s.startsWith("dom:")).map(s => s.slice(4));
+  const stored = _getAbsorbed();
+  const removed = new Set(
+    stored.filter(s => s.startsWith("dom:") && s.endsWith("__removed"))
+          .map(s => s.slice(4, -("__removed".length)))
+  );
+  const result = new Set(
+    stored.filter(s => s.startsWith("dom:") && !s.endsWith("__removed"))
+          .map(s => s.slice(4))
+  );
+  for (const k of _DOM_KNOWN) {
+    if (!game.modules.get(k.moduleId)?.active) continue;
+    if (removed.has(k.toolId)) { result.delete(k.toolId); continue; }
+    result.add(k.toolId);
+  }
+  return [...result];
 }
 
-// Pre-seed known entries and auto-add to absorbed if not yet configured
+// Look up display info for a DOM tool: detected first, then known seed.
+function _getDOMToolInfo(toolId) {
+  if (_detectedDOMTools[toolId]) return _detectedDOMTools[toolId];
+  const k = _DOM_KNOWN.find(k => k.toolId === toolId);
+  if (k) return { title: k.title, icon: k.icon, selector: k.selector ?? `[data-tool="${toolId}"]` };
+  return null;
+}
+
+// Pre-seed known entries into the detected map
 function _initKnownDOMTools() {
-  const absorbed = _getAbsorbed();
-  let changed = false;
   for (const k of _DOM_KNOWN) {
     if (!game.modules.get(k.moduleId)?.active) continue;
     _detectedDOMTools[k.toolId] ??= {
       title: k.title, icon: k.icon,
       selector: k.selector ?? `[data-tool="${k.toolId}"]`,
     };
-    // Auto-add on first run (user can uncheck later in dialog)
-    if (!absorbed.includes(`dom:${k.toolId}`) && !absorbed.includes(`dom:${k.toolId}__removed`)) {
-      absorbed.push(`dom:${k.toolId}`);
-      changed = true;
-    }
   }
-  if (changed) game.settings.set("vtools", "absorbedControls", JSON.stringify(absorbed));
 }
 
 function _scanDOMTools() {
@@ -369,7 +386,7 @@ Hooks.on("renderSceneControls", () => {
   // Hide all absorbed DOM tools (keep in DOM so click-proxy works)
   const absorbedDOM = _getAbsorbedDOM();
   for (const toolId of absorbedDOM) {
-    const info = _detectedDOMTools[toolId];
+    const info = _getDOMToolInfo(toolId);
     if (!info) continue;
     for (const el of document.querySelectorAll(info.selector)) {
       el.style.setProperty("display", "none", "important");
@@ -378,7 +395,7 @@ Hooks.on("renderSceneControls", () => {
 
   // If newly detected absorbed tools found → re-render so they appear in VTools
   if (Object.keys(_detectedDOMTools).length > prevCount) {
-    const hasNewAbsorbed = absorbedDOM.some(id => _detectedDOMTools[id]);
+    const hasNewAbsorbed = absorbedDOM.some(id => _getDOMToolInfo(id));
     if (hasNewAbsorbed) ui.controls?.render();
   }
 });
@@ -447,16 +464,22 @@ function _openAbsorbMenu() {
   }
 
   const absorbed = _getAbsorbed();
+  const absorbedDOMSet = new Set(_getAbsorbedDOM());
 
-  const row = ({ id, icon, title, hasLayer }) => `
+  // DOM entries use the effective (default-on) list; control entries use raw stored list
+  const isChecked = (e) => e.isDom
+    ? absorbedDOMSet.has(e.id.slice(4)) // strip "dom:" prefix
+    : absorbed.includes(e.id);
+
+  const row = (e) => `
     <div class="form-group">
-      <label><i class="${icon ?? "fas fa-puzzle-piece"}"></i> ${title ?? id}
-        ${hasLayer ? " <span style='color:#f90' title='Has canvas layer'>⚠</span>" : ""}
+      <label><i class="${e.icon ?? "fas fa-puzzle-piece"}"></i> ${e.title ?? e.id}
+        ${e.hasLayer ? " <span style='color:#f90' title='Has canvas layer'>⚠</span>" : ""}
       </label>
       <div class="form-fields">
-        <input type="checkbox" name="${id}"
-          ${absorbed.includes(id) ? "checked" : ""}
-          ${hasLayer ? "disabled" : ""}>
+        <input type="checkbox" name="${e.id}"
+          ${isChecked(e) ? "checked" : ""}
+          ${e.hasLayer ? "disabled" : ""}>
       </div>
     </div>`;
 
@@ -478,10 +501,23 @@ function _openAbsorbMenu() {
         label: "Save",
         callback: async (html) => {
           const root = html instanceof HTMLElement ? html : html[0];
-          const newAbsorbed = allEntries
-            .filter(e => !e.hasLayer && root.querySelector(`[name="${e.id}"]`)?.checked)
-            .map(e => e.id);
-          await game.settings.set("vtools", "absorbedControls", JSON.stringify(newAbsorbed));
+          const knownIds = new Set(_DOM_KNOWN.map(k => k.toolId));
+          const out = [];
+          for (const e of allEntries) {
+            if (e.hasLayer) continue;
+            const checked = !!root.querySelector(`[name="${e.id}"]`)?.checked;
+            if (e.isDom) {
+              const toolId = e.id.slice(4); // strip "dom:"
+              if (checked) {
+                out.push(e.id); // dom:<id>
+              } else if (knownIds.has(toolId)) {
+                out.push(`dom:${toolId}__removed`); // override default-on
+              }
+            } else if (checked) {
+              out.push(e.id);
+            }
+          }
+          await game.settings.set("vtools", "absorbedControls", JSON.stringify(out));
           ui.controls?.render();
         },
       },
