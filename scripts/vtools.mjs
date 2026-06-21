@@ -293,7 +293,8 @@ Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); _absorbDOMModule
 
 // ── Auto-detection of DOM-injected module tools ──
 
-// Known DOM-injected tools (hardcoded seeds — always show in dialog, auto-absorbed by default)
+// Known DOM-injected tools (hardcoded seeds — always selectable in the dialog with a
+// nice title/icon; NOT absorbed unless the user ticks them — nothing is auto by default)
 const _DOM_KNOWN = [
   { toolId: "bossBar", moduleId: "bossbar", title: "Boss Bar", icon: "fas fa-dragon",
     // Boss Bar may appear as a standalone control or sub-tool depending on version
@@ -306,22 +307,13 @@ const _detectedDOMTools = {};
 // Effective absorbed DOM tool list. Known tools are absorbed by DEFAULT
 // unless the user explicitly removed them (marker "dom:<id>__removed").
 // Computed fresh each call → no dependency on async settings writes.
+// Returns only DOM tools the user explicitly enabled. Nothing is absorbed by
+// default — known tools (e.g. Boss Bar) are just seeds for the dialog/info lookup.
+// (The __removed filter is kept only to ignore any legacy markers from older versions.)
 function _getAbsorbedDOM() {
-  const stored = _getAbsorbed();
-  const removed = new Set(
-    stored.filter(s => s.startsWith("dom:") && s.endsWith("__removed"))
-          .map(s => s.slice(4, -("__removed".length)))
-  );
-  const result = new Set(
-    stored.filter(s => s.startsWith("dom:") && !s.endsWith("__removed"))
-          .map(s => s.slice(4))
-  );
-  for (const k of _DOM_KNOWN) {
-    if (!game.modules.get(k.moduleId)?.active) continue;
-    if (removed.has(k.toolId)) { result.delete(k.toolId); continue; }
-    result.add(k.toolId);
-  }
-  return [...result];
+  return _getAbsorbed()
+    .filter(s => s.startsWith("dom:") && !s.endsWith("__removed"))
+    .map(s => s.slice(4));
 }
 
 // Invoke an absorbed DOM tool by calling its REAL handler, resolved at click time.
@@ -482,7 +474,7 @@ function _openAbsorbMenu() {
   const absorbed = _getAbsorbed();
   const absorbedDOMSet = new Set(_getAbsorbedDOM());
 
-  // DOM entries use the effective (default-on) list; control entries use raw stored list
+  // DOM entries reflect what's explicitly enabled; control entries use raw stored list
   const isChecked = (e) => e.isDom
     ? absorbedDOMSet.has(e.id.slice(4)) // strip "dom:" prefix
     : absorbed.includes(e.id);
@@ -517,22 +509,10 @@ function _openAbsorbMenu() {
         label: "Save",
         callback: async (html) => {
           const root = html instanceof HTMLElement ? html : html[0];
-          const knownIds = new Set(_DOM_KNOWN.map(k => k.toolId));
-          const out = [];
-          for (const e of allEntries) {
-            if (e.hasLayer) continue;
-            const checked = !!root.querySelector(`[name="${e.id}"]`)?.checked;
-            if (e.isDom) {
-              const toolId = e.id.slice(4); // strip "dom:"
-              if (checked) {
-                out.push(e.id); // dom:<id>
-              } else if (knownIds.has(toolId)) {
-                out.push(`dom:${toolId}__removed`); // override default-on
-              }
-            } else if (checked) {
-              out.push(e.id);
-            }
-          }
+          // Nothing is default-on, so we simply store every checked entry by its id.
+          const out = allEntries
+            .filter(e => !e.hasLayer && root.querySelector(`[name="${e.id}"]`)?.checked)
+            .map(e => e.id);
           await game.settings.set("vtools", "absorbedControls", JSON.stringify(out));
           ui.controls?.render();
         },
