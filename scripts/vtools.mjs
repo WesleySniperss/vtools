@@ -127,7 +127,7 @@ function _iconKey(icon) {
 // Identity key for a panel entry — used to drop look-alike duplicates (same title + icon),
 // e.g. a module that registers the same button twice under different names.
 function _dupKey(title, icon) {
-  return `${(title ?? "").trim().toLowerCase()}::${_iconKey(icon)}`;
+  return `${String(title ?? "").trim().toLowerCase()}::${_iconKey(icon)}`;
 }
 
 Hooks.on("getSceneControlButtons", (controls) => {
@@ -138,19 +138,23 @@ Hooks.on("getSceneControlButtons", (controls) => {
   const usedIcons = new Set();
   const seenKeys = new Set();   // drop look-alike duplicates (same title + icon)
   let order = 1;
-  for (const t of toolEntries) {
-    const key = _dupKey(t.title ?? t.name, t.icon);
-    if (seenKeys.has(key)) continue;
-    seenKeys.add(key);
-    tools[t.name] = {
-      name:     t.name,
-      order:    order++,
-      title:    t.title ?? t.name,
-      icon:     _uniqueIcon(t.icon, usedIcons),
-      visible:  true,
-      button:   true,
-      onChange: () => t.onClick(),
-    };
+  try {
+    for (const t of toolEntries) {
+      const key = _dupKey(t.title ?? t.name, t.icon);
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      tools[t.name] = {
+        name:     t.name,
+        order:    order++,
+        title:    t.title ?? t.name,
+        icon:     _uniqueIcon(t.icon, usedIcons),
+        visible:  true,
+        button:   true,
+        onChange: () => t.onClick(),
+      };
+    }
+  } catch (err) {
+    console.error("VTools | registered-tool building failed (control kept intact):", err);
   }
 
   // User-absorbed toolbar icons (whole controls or individual tools).
