@@ -117,14 +117,31 @@ function _uniqueIcon(icon, usedIcons) {
   return icon;
 }
 
+// Canonical icon string so style aliases compare equal (fas === fa-solid, etc.)
+const _ICON_ALIAS = { fas: "fa-solid", far: "fa-regular", fab: "fa-brands", fal: "fa-light", fad: "fa-duotone" };
+function _iconKey(icon) {
+  return String(icon ?? "").split(/\s+/).filter(Boolean)
+    .map(c => _ICON_ALIAS[c] ?? c).sort().join(" ");
+}
+
+// Identity key for a panel entry — used to drop look-alike duplicates (same title + icon),
+// e.g. a module that registers the same button twice under different names.
+function _dupKey(title, icon) {
+  return `${(title ?? "").trim().toLowerCase()}::${_iconKey(icon)}`;
+}
+
 Hooks.on("getSceneControlButtons", (controls) => {
   if (!game.user.isGM) return;
   const toolEntries = VTools._tools.length > 0 ? VTools._tools : [];
 
   const tools = {};
   const usedIcons = new Set();
+  const seenKeys = new Set();   // drop look-alike duplicates (same title + icon)
   let order = 1;
   for (const t of toolEntries) {
+    const key = _dupKey(t.title ?? t.name, t.icon);
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
     tools[t.name] = {
       name:     t.name,
       order:    order++,
@@ -144,6 +161,9 @@ Hooks.on("getSceneControlButtons", (controls) => {
       if (!entry?.id) continue;
       const proxyId = `abs:${entry.id}`;
       if (tools[proxyId]) continue;
+      const key = _dupKey(entry.title ?? entry.id, entry.icon);
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
       tools[proxyId] = {
         name:     proxyId,
         order:    order++,
