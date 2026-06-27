@@ -138,19 +138,24 @@ Hooks.on("getSceneControlButtons", (controls) => {
 
   // User-absorbed toolbar icons (whole controls or individual tools).
   // Each stored entry is { id, title, icon }; the handler is resolved at click time.
-  for (const entry of _getAbsorbed()) {
-    if (!entry?.id) continue;
-    const proxyId = `abs:${entry.id}`;
-    if (tools[proxyId]) continue;
-    tools[proxyId] = {
-      name:     proxyId,
-      order:    order++,
-      title:    entry.title ?? entry.id,
-      icon:     _uniqueIcon(entry.icon ?? "fas fa-puzzle-piece", usedIcons),
-      visible:  true,
-      button:   true,
-      onChange: () => _invokeAbsorbed(entry.id),
-    };
+  // Guarded so a bad entry can NEVER stop the VTools control itself from being created.
+  try {
+    for (const entry of _getAbsorbed()) {
+      if (!entry?.id) continue;
+      const proxyId = `abs:${entry.id}`;
+      if (tools[proxyId]) continue;
+      tools[proxyId] = {
+        name:     proxyId,
+        order:    order++,
+        title:    entry.title ?? entry.id,
+        icon:     _uniqueIcon(entry.icon ?? "fas fa-puzzle-piece", usedIcons),
+        visible:  true,
+        button:   true,
+        onChange: () => _invokeAbsorbed(entry.id),
+      };
+    }
+  } catch (err) {
+    console.error("VTools | absorption injection failed (control kept intact):", err);
   }
 
   // Dummy — activeTool щоб жодна кнопка не виглядала "вибраною"
@@ -283,7 +288,21 @@ function _hookGmrollBtn() {
 }
 
 Hooks.on("renderChatLog", () => { _hookGmrollBtn(); _hookChatInput(); });
-Hooks.once("ready", () => { _hookGmrollBtn(); _hookChatInput(); _registerAbsorptionHook(); });
+Hooks.once("ready", () => {
+  _hookGmrollBtn();
+  _hookChatInput();
+  // One-time cleanup: rewrite the stored list to the clean object format, dropping any
+  // legacy string entries from older versions so nothing stale can break absorption.
+  if (game.user.isGM) {
+    try {
+      const clean = JSON.stringify(_getAbsorbed());
+      if (clean !== game.settings.get("vtools", "absorbedControls")) {
+        game.settings.set("vtools", "absorbedControls", clean);
+      }
+    } catch (err) { console.error("VTools | settings cleanup failed:", err); }
+  }
+  _registerAbsorptionHook();
+});
 
 // ── Absorption: pull ANY toolbar icon into VTools ──
 //
@@ -344,20 +363,24 @@ function _invokeAbsorbed(id) {
 // Hide the originals of everything absorbed (and the VTools dummy) after each render.
 Hooks.on("renderSceneControls", () => {
   if (!game.user.isGM) return;
-
-  if (ui.controls?.control?.name === "vtools") {
-    document.querySelector('[data-tool="vtools-dummy"]')
-      ?.style.setProperty("display", "none", "important");
-  }
-
-  for (const entry of _getAbsorbed()) {
-    let sel = null;
-    if (entry.id.startsWith("ctrl:"))      sel = `[data-control="${entry.id.slice(5)}"]`;
-    else if (entry.id.startsWith("tool:")) sel = `[data-tool="${_parseToolId(entry.id).tool}"]`;
-    if (!sel) continue;
-    for (const el of document.querySelectorAll(sel)) {
-      el.style.setProperty("display", "none", "important");
+  try {
+    if (ui.controls?.control?.name === "vtools") {
+      document.querySelector('[data-tool="vtools-dummy"]')
+        ?.style.setProperty("display", "none", "important");
     }
+
+    for (const entry of _getAbsorbed()) {
+      if (!entry?.id || entry.id === "ctrl:vtools") continue; // never hide VTools itself
+      let sel = null;
+      if (entry.id.startsWith("ctrl:"))      sel = `[data-control="${entry.id.slice(5)}"]`;
+      else if (entry.id.startsWith("tool:")) sel = `[data-tool="${_parseToolId(entry.id).tool}"]`;
+      if (!sel) continue;
+      for (const el of document.querySelectorAll(sel)) {
+        el.style.setProperty("display", "none", "important");
+      }
+    }
+  } catch (err) {
+    console.error("VTools | renderSceneControls hook failed:", err);
   }
 });
 
