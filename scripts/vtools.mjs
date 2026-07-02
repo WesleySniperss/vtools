@@ -132,14 +132,13 @@ function _dupKey(title, icon) {
 
 Hooks.on("getSceneControlButtons", (controls) => {
   if (!game.user.isGM) return;
-  const toolEntries = VTools._tools.length > 0 ? VTools._tools : [];
 
   const tools = {};
   const usedIcons = new Set();
   const seenKeys = new Set();   // drop look-alike duplicates (same title + icon)
   let order = 1;
   try {
-    for (const t of toolEntries) {
+    for (const t of VTools._tools) {
       const key = _dupKey(t.title ?? t.name, t.icon);
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
@@ -350,12 +349,21 @@ function _localize(s) {
 
 // Stored list normalised to objects. Legacy string entries from older versions are
 // dropped (format changed) — that simply resets absorption to a clean slate.
+// Memoised by the raw settings string so the hot renderSceneControls path doesn't
+// re-parse JSON on every canvas/tool interaction. The cache self-refreshes whenever
+// the stored value changes (e.g. after Save), since the raw string differs.
+let _absorbedRaw = null;
+let _absorbedVal = [];
 function _getAbsorbed() {
-  let raw;
-  try { raw = JSON.parse(game.settings.get("vtools", "absorbedControls")); }
-  catch { return []; }
-  if (!Array.isArray(raw)) return [];
-  return raw.filter(e => e && typeof e === "object" && typeof e.id === "string");
+  const raw = game.settings.get("vtools", "absorbedControls");
+  if (raw === _absorbedRaw) return _absorbedVal;   // cache hit
+  _absorbedRaw = raw;
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { parsed = null; }
+  _absorbedVal = Array.isArray(parsed)
+    ? parsed.filter(e => e && typeof e === "object" && typeof e.id === "string")
+    : [];
+  return _absorbedVal;   // treat as read-only (shared reference)
 }
 
 // "tool:<ctrl>::<tool>" → { ctrl, tool }
