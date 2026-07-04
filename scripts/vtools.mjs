@@ -207,41 +207,94 @@ Hooks.on("getSceneControlButtons", (controls) => {
 //  in the Absorption section below.)
 
 // ── Whisper feature ──
+// Multi-recipient private whisper: pick one or more active players, type in the
+// normal chat box, Enter sends. Selection can be edited/cancelled at any time.
 
-let _whisperTarget = null;
+const _whisperTargets = new Set();   // selected user ids
 
 function _getChatInput() {
   return document.querySelector("#chat-message, textarea[name='message']");
 }
 
-function _clearWhisperTarget() {
-  _whisperTarget = null;
-  document.querySelector(".vtools-whisper-banner")?.remove();
-  const input = _getChatInput();
-  if (input) input.placeholder = "";
+function _whisperNames() {
+  return [..._whisperTargets].map(id => game.users.get(id)?.name).filter(Boolean);
 }
 
-function _setWhisperTarget(user) {
-  _whisperTarget = user;
-  document.querySelector(".vtools-whisper-banner")?.remove();
+function _clearWhisperTargets() {
+  _whisperTargets.clear();
+  _renderWhisperBanner();
+  document.querySelector(".vtools-player-picker")?.remove();
+  _getChatInput()?.focus();
+}
 
+function _toggleWhisperTarget(id) {
+  if (_whisperTargets.has(id)) _whisperTargets.delete(id);
+  else _whisperTargets.add(id);
+  _renderWhisperBanner();
+  _syncPickerState();
+}
+
+// Reflect current selection in an open picker (checkmarks / highlight)
+function _syncPickerState() {
+  const picker = document.querySelector(".vtools-player-picker");
+  if (!picker) return;
+  picker.querySelectorAll(".vtools-picker-item").forEach(item => {
+    item.classList.toggle("vtools-picker-item--on", _whisperTargets.has(item.dataset.userId));
+  });
+}
+
+function _renderWhisperBanner() {
+  document.querySelector(".vtools-whisper-banner")?.remove();
   const input = _getChatInput();
   if (!input) return;
+  if (_whisperTargets.size === 0) { input.placeholder = ""; return; }
 
   const banner = document.createElement("div");
   banner.className = "vtools-whisper-banner";
-  banner.innerHTML = `<i class="fas fa-envelope"></i> Whisper to <strong>${user.name}</strong><button type="button" class="vtools-whisper-cancel" title="Cancel">✕</button>`;
-  banner.querySelector(".vtools-whisper-cancel").addEventListener("click", _clearWhisperTarget);
+
+  const label = document.createElement("span");
+  label.className = "vtools-whisper-label";
+  label.innerHTML = `<i class="fas fa-user-secret"></i> Whisper`;
+  banner.appendChild(label);
+
+  const chips = document.createElement("div");
+  chips.className = "vtools-whisper-chips";
+  for (const id of _whisperTargets) {
+    const user = game.users.get(id);
+    if (!user) continue;
+    const chip = document.createElement("span");
+    chip.className = "vtools-whisper-chip";
+    chip.innerHTML =
+      `<span class="vtools-player-pip" style="background:${user.color}"></span>` +
+      `<span class="vtools-chip-name">${user.name}</span>` +
+      `<i class="fas fa-xmark vtools-chip-x" title="Remove"></i>`;
+    chip.querySelector(".vtools-chip-x").addEventListener("click", (e) => {
+      e.stopPropagation();
+      _whisperTargets.delete(id);
+      _renderWhisperBanner();
+      _syncPickerState();
+    });
+    chips.appendChild(chip);
+  }
+  banner.appendChild(chips);
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "vtools-whisper-cancel";
+  cancel.title = "Cancel whisper";
+  cancel.innerHTML = `<i class="fas fa-xmark"></i>`;
+  cancel.addEventListener("click", _clearWhisperTargets);
+  banner.appendChild(cancel);
 
   const form = input.closest("form") ?? input.parentElement;
   form.insertAdjacentElement("beforebegin", banner);
-
-  input.placeholder = `Whisper to ${user.name}...`;
-  input.focus();
+  input.placeholder = `Whisper to ${_whisperNames().join(", ")}…`;
 }
 
 function _showWhisperPicker(anchorEl) {
-  document.querySelector(".vtools-player-picker")?.remove();
+  // Toggle: a second click on the button closes an open picker
+  const open = document.querySelector(".vtools-player-picker");
+  if (open) { open.remove(); return; }
 
   const users = game.users.filter(u => u.active && u.id !== game.user.id);
   if (!users.length) {
@@ -251,24 +304,40 @@ function _showWhisperPicker(anchorEl) {
 
   const picker = document.createElement("div");
   picker.className = "vtools-player-picker";
+  picker.innerHTML = `<div class="vtools-picker-header">Whisper to…</div>`;
 
   for (const user of users) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "vtools-picker-item";
-    item.innerHTML = `<span class="vtools-player-pip" style="background:${user.color}"></span>${user.name}`;
+    item.dataset.userId = user.id;
+    if (_whisperTargets.has(user.id)) item.classList.add("vtools-picker-item--on");
+    item.innerHTML =
+      `<span class="vtools-picker-check"><i class="fas fa-check"></i></span>` +
+      `<span class="vtools-player-pip" style="background:${user.color}"></span>` +
+      `<span class="vtools-picker-name">${user.name}</span>`;
     item.addEventListener("click", (e) => {
       e.stopPropagation();
-      picker.remove();
-      _setWhisperTarget(user);
+      _toggleWhisperTarget(user.id);
     });
     picker.appendChild(item);
   }
 
+  const done = document.createElement("button");
+  done.type = "button";
+  done.className = "vtools-picker-done";
+  done.innerHTML = `<i class="fas fa-check"></i> Done`;
+  done.addEventListener("click", (e) => {
+    e.stopPropagation();
+    picker.remove();
+    _getChatInput()?.focus();
+  });
+  picker.appendChild(done);
+
+  document.body.appendChild(picker);
   const rect = anchorEl.getBoundingClientRect();
   picker.style.left = `${rect.left}px`;
   picker.style.bottom = `${window.innerHeight - rect.top + 6}px`;
-  document.body.appendChild(picker);
 
   const onOutside = (e) => {
     if (!picker.contains(e.target) && e.target !== anchorEl) {
@@ -284,18 +353,18 @@ function _hookChatInput() {
   if (!input || input.dataset.vtoolsHooked) return;
   input.dataset.vtoolsHooked = "1";
   input.addEventListener("keydown", (e) => {
-    if (!_whisperTarget || e.key !== "Enter" || e.shiftKey) return;
+    if (_whisperTargets.size === 0 || e.key !== "Enter" || e.shiftKey) return;
     e.stopImmediatePropagation();
     e.preventDefault();
     const message = input.value.trim();
     if (!message) return;
     ChatMessage.create({
       content: message,
-      whisper: [_whisperTarget.id],
+      whisper: [..._whisperTargets],
       speaker: ChatMessage.getSpeaker(),
     });
     input.value = "";
-    _clearWhisperTarget();
+    _clearWhisperTargets();
   }, true);
 }
 
