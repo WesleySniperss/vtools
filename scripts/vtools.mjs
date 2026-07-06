@@ -462,6 +462,7 @@ function _invokeAbsorbed(id) {
 }
 
 // Hide the originals of everything absorbed (and the VTools dummy) after each render.
+let _vtoolsHealAt = 0;   // cooldown for the self-heal re-render below
 Hooks.on("renderSceneControls", () => {
   if (!game.user.isGM) return;
   try {
@@ -478,6 +479,20 @@ Hooks.on("renderSceneControls", () => {
       if (!sel) continue;
       for (const el of document.querySelectorAll(sel)) {
         el.style.setProperty("display", "none", "important");
+      }
+    }
+
+    // Self-heal: if the toolbar rendered WITHOUT our button (render race at startup,
+    // or a later module clobbering the controls record), force one re-render.
+    // Only when other control buttons exist (i.e. the bar itself is on screen), and
+    // with a cooldown so a persistent failure can never loop.
+    const anyBtn = document.querySelector("[data-control]");
+    if (anyBtn && !document.querySelector('[data-control="vtools"]')) {
+      const now = Date.now();
+      if (now - _vtoolsHealAt > 2000) {
+        _vtoolsHealAt = now;
+        console.warn("VTools | control missing from toolbar — re-rendering");
+        ui.controls?.render();
       }
     }
   } catch (err) {
@@ -593,5 +608,10 @@ function _registerAbsorptionHook() {
       if (VTools._tools.find(t => t.name === name)) delete controls[name];
     }
   });
-  ui.controls?.render();
+  // Re-render ONLY if a duplicate standalone control is actually on screen right now.
+  // The old unconditional render here raced Foundry's initial async render — the loser
+  // of that race could paint the toolbar without the VTools button (intermittent).
+  const cur = ui.controls?.controls ?? {};
+  const hasDupe = Object.keys(cur).some(n => n !== "vtools" && VTools._tools.find(t => t.name === n));
+  if (hasDupe) ui.controls.render();
 }
