@@ -189,14 +189,15 @@ Hooks.on("getSceneControlButtons", (controls) => {
     onChange: () => {},
   };
 
-  // Slot in right after the topmost control (tokens) → second from the top,
-  // regardless of what order values other modules use.
-  const orders = Object.values(controls).map(c => c.order ?? 0);
-  const minOrder = orders.length ? Math.min(...orders) : 0;
+  // Sit immediately after the tokens control → second from the top. Anchor to the
+  // tokens control's own order (v13: tokens=1) rather than a global min, because some
+  // module controls have order:undefined which would otherwise pull the anchor to 0.
+  const tokenCtrl = controls["tokens"] ?? controls["token"];
+  const baseOrder = (typeof tokenCtrl?.order === "number") ? tokenCtrl.order : 0;
 
   controls["vtools"] = {
     name:         "vtools",
-    order:        minOrder + 0.5,
+    order:        baseOrder + 0.5,
     title:        "VTools",
     icon:         "vtools-icon",
     layer:        "vtools",
