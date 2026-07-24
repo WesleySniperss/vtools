@@ -43,18 +43,24 @@ class VToolsAPI {
 const VTools = new VToolsAPI();
 window.VTools = VTools;
 
-// ── VTools Canvas Layer (needed for v13 to show tools in secondary panel) ──
-class _VToolsLayer extends CanvasLayer {
+// ── VTools Canvas Layer (needed for v13+ to show tools in the secondary panel) ──
+// Resolve the base class defensively: v14 namespaces it under foundry.canvas.layers,
+// while v13 still exposes the CanvasLayer global. If neither exists we skip the layer
+// rather than throwing at module load (which would take the whole module down).
+const _CanvasLayerBase =
+  globalThis.foundry?.canvas?.layers?.CanvasLayer ?? globalThis.CanvasLayer ?? null;
+
+const _VToolsLayer = _CanvasLayerBase && class extends _CanvasLayerBase {
   static get layerOptions() {
     return foundry.utils.mergeObject(super.layerOptions, { name: "vtools", zIndex: 9998 });
   }
   async _draw(options = {}) { return this; }
   async _tearDown(options = {}) { return this; }
-}
+};
 
 // ── Settings ──
 Hooks.once("init", () => {
-  CONFIG.Canvas.layers["vtools"] = { layerClass: _VToolsLayer, group: "interface" };
+  if (_VToolsLayer) CONFIG.Canvas.layers["vtools"] = { layerClass: _VToolsLayer, group: "interface" };
   game.settings.register("vtools", "gmSeesWhispers", {
     name: "GM sees player whispers",
     hint: "When enabled, the GM can see private whisper messages sent between players.",
@@ -71,28 +77,36 @@ Hooks.once("init", () => {
     default: "[]",
   });
 
-  game.settings.registerMenu("vtools", "absorbMenu", {
-    name: "Absorb toolbar icons",
-    hint: "Pick any toolbar icon (control or tool button) to move it into the VTools panel.",
-    label: "Configure",
-    icon: "fas fa-cubes",
-    type: _VToolsAbsorbMenu,
-    restricted: true,
-  });
+  try {
+    game.settings.registerMenu("vtools", "absorbMenu", {
+      name: "Absorb toolbar icons",
+      hint: "Pick any toolbar icon (control or tool button) to move it into the VTools panel.",
+      label: "Configure",
+      icon: "fas fa-cubes",
+      type: _VToolsAbsorbMenu,
+      restricted: true,
+    });
+  } catch (err) {
+    console.error("VTools | registerMenu failed (settings button unavailable):", err);
+  }
 
 });
 
-// Hide player-to-player whispers from GM when setting is off
-Hooks.on("renderChatMessage", (message, html) => {
+// Hide player-to-player whispers from GM when setting is off.
+// Registered on both hook names: v13+ fires renderChatMessageHTML (html = HTMLElement),
+// older cores fire renderChatMessage (html = jQuery). The action is idempotent, so it's
+// safe if both fire. Handles either html type.
+function _crHideWhisper(message, html) {
   if (!game.user.isGM) return;
   if (game.settings.get("vtools", "gmSeesWhispers")) return;
   if (!message.whisper?.length) return;
-  // Show if GM is a recipient or the author of the whisper
-  if (message.whisper.includes(game.user.id)) return;
-  if ((message.author?.id ?? message.user?.id) === game.user.id) return;
-  const root = html instanceof HTMLElement ? html : html[0];
+  if (message.whisper.includes(game.user.id)) return;               // GM is a recipient
+  if ((message.author?.id ?? message.user?.id) === game.user.id) return; // GM is the author
+  const root = html instanceof HTMLElement ? html : html?.[0];
   if (root) root.style.display = "none";
-});
+}
+Hooks.on("renderChatMessageHTML", _crHideWhisper);
+Hooks.on("renderChatMessage", _crHideWhisper);
 
 // ── Вогонь vtools.ready під час setup, ДО першого рендеру controls ──
 // Це гарантує що _tools буде заповнений коли getSceneControlButtons спрацює
@@ -385,7 +399,11 @@ function _hookGmrollBtn() {
   }, true);
 }
 
-Hooks.on("renderChatLog", () => { _hookGmrollBtn(); _hookChatInput(); });
+// renderChatLog (v13) / renderChatInput (v14 split out the input) — both are safe to
+// listen on; the hook functions are idempotent (guarded by dataset flags).
+const _rehookChat = () => { _hookGmrollBtn(); _hookChatInput(); };
+Hooks.on("renderChatLog", _rehookChat);
+Hooks.on("renderChatInput", _rehookChat);
 Hooks.once("ready", () => {
   _hookGmrollBtn();
   _hookChatInput();
@@ -565,29 +583,54 @@ function _openAbsorbMenu() {
             ${entries.map(rowOf).join("")}`;
   }).join("");
 
+  const content = `
+    <form style="max-height:460px;overflow-y:auto">
+      <p style="font-size:12px;color:#aaa;margin:0 0 8px">
+        Tick any icon to move it into the VTools panel. ⚠ marks canvas-layer controls.
+      </p>
+      ${sections}
+    </form>`;
+
+  // Read the checked boxes out of the dialog root and persist.
+  const commit = (root) => {
+    if (!root) return;
+    const out = [];
+    for (const e of catalog) {
+      if (root.querySelector(`[name="${e.id}"]`)?.checked) {
+        out.push({ id: e.id, title: e.title, icon: e.icon });
+      }
+    }
+    game.settings.set("vtools", "absorbedControls", JSON.stringify(out))
+      .then(() => ui.controls?.render());
+  };
+
+  _vtoolsDialog("VTools — Absorb toolbar icons", content, commit);
+}
+
+// Cross-version dialog: prefer ApplicationV2 DialogV2 (v13/v14), fall back to the
+// deprecated V1 Dialog for older cores. onSave receives the dialog root HTMLElement.
+function _vtoolsDialog(title, content, onSave) {
+  const DV2 = foundry?.applications?.api?.DialogV2;
+  if (DV2) {
+    new DV2({
+      window: { title, icon: "fas fa-cubes" },
+      position: { width: 440 },
+      content,
+      buttons: [
+        { action: "save", label: "Save", icon: "fas fa-save", default: true,
+          callback: (_event, _button, dialog) => onSave(dialog?.element) },
+        { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+      ],
+    }).render(true);
+    return;
+  }
   new Dialog({
-    title: "VTools — Absorb toolbar icons",
-    content: `
-      <form style="max-height:460px;overflow-y:auto">
-        <p style="font-size:12px;color:#aaa;margin:0 0 8px">
-          Tick any icon to move it into the VTools panel. ⚠ marks canvas-layer controls.
-        </p>
-        ${sections}
-      </form>`,
+    title,
+    content,
     buttons: {
       save: {
-        icon: '<i class="fas fa-save"></i>',
-        label: "Save",
-        callback: (html) => {
-          const root = html instanceof HTMLElement ? html : html[0];
-          const out = [];
-          for (const e of catalog) {
-            const cb = root.querySelector(`[name="${e.id}"]`);
-            if (cb?.checked) out.push({ id: e.id, title: e.title, icon: e.icon });
-          }
-          game.settings.set("vtools", "absorbedControls", JSON.stringify(out))
-            .then(() => ui.controls?.render());
-        },
+        icon: '<i class="fas fa-save"></i>', label: "Save",
+        callback: (html) => onSave(html instanceof HTMLElement ? html : html?.[0]),
       },
       cancel: { label: "Cancel" },
     },
@@ -595,12 +638,12 @@ function _openAbsorbMenu() {
   }).render(true);
 }
 
-class _VToolsAbsorbMenu extends FormApplication {
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, { id: "vtools-absorb-menu" });
-  }
-  getData() { return {}; }
-  async _updateObject() {}
+// Settings-menu launcher. Base resolves to ApplicationV2 (v13/v14) or the deprecated
+// V1 FormApplication, whichever exists — registerMenu just needs a class whose
+// render() we override to open our own dialog.
+const _MenuAppBase =
+  globalThis.foundry?.applications?.api?.ApplicationV2 ?? globalThis.FormApplication ?? Object;
+class _VToolsAbsorbMenu extends _MenuAppBase {
   render() { _openAbsorbMenu(); return this; }
 }
 
